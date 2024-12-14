@@ -1,14 +1,18 @@
 package app.copyer
 
 import WorkDir
+import app.actionpack.ActionExecutor
 import kotlinx.coroutines.runBlocking
 import logger
+import model.EventListener
 import model.Usb
 import model.UsbConfig
 import repository.db.FsDB
 import utils.UsbUtils
+import utils.UsbUtils.getUsb
 import utils.fileWalkOnUsb
 import utils.hidden
+import utils.listenerUsbBeenRemoved
 import java.io.File
 import java.nio.file.Files
 import javax.swing.filechooser.FileSystemView
@@ -16,10 +20,14 @@ import javax.swing.filechooser.FileSystemView
 //DebugFlag
 private const val filterCopiedDebug = true
 class Copyer(private val usbRootFile: File) {
-    private val usb = getUsb()
+    private val usb = getUsb(usbRootFile)
     private val config = getConfig(usb)
     private val storagePaths = runBlocking { FsDB.listFilesPath(usb.usbId) }
-    fun main() {
+    suspend fun main() {
+        ActionExecutor.eventListenerFlow.emit(EventListener.WhenCommonUDiskMounted(usb))
+        listenerUsbBeenRemoved(usbRootFile) {
+            ActionExecutor.eventListenerFlow.emit(EventListener.WhenCommonUDiskUnmounted(usb.usbId))
+        }
         logger.debug("USB: <${usbRootFile}><${usb.usbId}>")
         fileWalkOnUsb(usb, initRootDir = {
             // getRootDirId
@@ -49,41 +57,7 @@ class Copyer(private val usbRootFile: File) {
     }
 
     private fun getConfig(usb: Usb): UsbConfig {
-        return UsbConfig.getConfig(usb)
+        return WorkDir.serviceConfig.getUsbConfig(usb.usbId)
     }
 
-    private fun getUsb(): Usb {
-        val usbs = FsDB.getUsbItems()
-        val name = FileSystemView.getFileSystemView().getSystemDisplayName(usbRootFile)
-        val totalSize = usbRootFile.totalSpace
-        val freeSize = usbRootFile.freeSpace
-        val usbId = getUsbId(usbRootFile)
-        val usb = usbs.find { it.usbId == usbId }
-        val popCount = usb?.popCount?:0
-        //不存在说明该U盘新插入
-        if (usb == null) {
-            FsDB.insertNewUsb(name, usbId, totalSize, freeSize)
-        } else FsDB.updateUsb(name, usbId, totalSize, freeSize)
-        return Usb(usbRootFile, name, totalSize, freeSize, usbId, popCount)
-    }
-
-    /**
-     * 使用U盘根目录获取UsbId
-     */
-    private fun getUsbId(rootFile: File): String {
-        logger.debug("获取U盘ID[${rootFile.absolutePath}][UUIDFile]: ${UsbUtils.getDiskSerialNumberByFile(rootFile)}")
-        return UsbUtils.getDiskSerialNumberByFile(rootFile)
-//        val f = File(rootFile, ".udtid")
-//        if (!f.exists()) {
-//            f.createNewFile()
-//            f.writeText(System.nanoTime().toString())
-//            f.hidden()
-//        }
-//        var usbId = f.readText()
-//        if (usbId.isEmpty()) {
-//            usbId = System.nanoTime().toString()
-//            f.writeText(usbId)
-//        }
-//        return usbId
-    }
 }

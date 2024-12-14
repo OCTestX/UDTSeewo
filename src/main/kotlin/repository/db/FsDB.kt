@@ -109,7 +109,7 @@ object FsDB {
     fun insertFile(usb: Usb, file: File, parentDirId: String, config: UsbConfig) {
         val fpath = toFpath(usb.root, file)
         val fileId = getOnlyId()
-        insertFileByInputStream(file, usb.usbId, fpath, parentDirId, fileId, config.defaultCopySpeed)
+        insertFileByInputStream(file, usb.usbId, fpath, parentDirId, fileId, config.copySpeed)
     }
 
     /**
@@ -287,6 +287,17 @@ object FsDB {
             }
         }.await()
     }
+
+    suspend fun listFileInParentDir(usbId: String, parentDirId: String): List<DBUsbFile> {
+        return ioScope.async {
+            val table = UsbFilesTable(usbId)
+            db.from(table).select().where {
+                table.parentDirId eq parentDirId
+            }.map {
+                transformToDBUsbFile(usbId, table, it)
+            }
+        }.await()
+    }
 //
 //    /**
 //     * 获取U盘存储的全部文件数量
@@ -324,16 +335,7 @@ object FsDB {
             db.from(table).select().where {
                 table.fileId eq fileId
             }.map {
-                val path = fromFpath(it[table.fpath]!!)
-                DBUsbFile(
-                    usbId,
-                    path.split("/").last(),
-                    path,
-                    it[table.fileId]!!,
-                    it[table.size]!!,
-                    it[table.createTime]!!,
-                    it[table.parentDirId]!!,
-                )
+                transformToDBUsbFile(usbId, table, it)
             }.firstOrNull()
         }.await()
     }
@@ -411,6 +413,40 @@ object FsDB {
                 it[UsbsTable.usbId]!!,
                 it[UsbsTable.popCount]!!,
             )
+        }
+    }
+
+    /**
+     * 删除数据库中的U盘
+     */
+    fun deleteUsb(usbId: String) {
+        db.deleteAll(UsbFilesTable(usbId))
+        db.delete(UsbsTable) {
+            it.usbId eq usbId
+        }
+        db.delete(DirsTable) {
+            it.usbId eq usbId
+        }
+    }
+
+    /**
+     * 删除数据库中的U盘的文件夹
+     */
+    fun deleteUsbDir(usbId: String, dirId: String) {
+        db.delete(DirsTable) {
+            (it.usbId eq usbId) and (it.dirId eq dirId)
+        }
+        db.delete(UsbFilesTable(usbId)) {
+            it.parentDirId eq dirId
+        }
+    }
+
+    /**
+     * 删除数据库中的U盘的文件夹
+     */
+    fun deleteUsbFile(usbId: String, parentDirId: String, fileId: String) {
+        db.delete(UsbFilesTable(usbId)) {
+            (it.parentDirId eq parentDirId) and (it.fileId eq fileId)
         }
     }
 
@@ -504,5 +540,18 @@ object FsDB {
         return fpath
 //            .fromKCode64()
             .plog(fpathTransformDebug) { "获取相对路径: < $fpath > -> < $it >" }
+    }
+
+    fun transformToDBUsbFile(usbId: String,usbFilesTable: UsbFilesTable, rowSet: QueryRowSet): DBUsbFile {
+        val path = fromFpath(rowSet[usbFilesTable.fpath]!!)
+        return DBUsbFile(
+            usbId,
+            path.split("/").last(),
+            path,
+            rowSet[usbFilesTable.fileId]!!,
+            rowSet[usbFilesTable.size]!!,
+            rowSet[usbFilesTable.createTime]!!,
+            rowSet[usbFilesTable.parentDirId]!!,
+        )
     }
 }

@@ -36,6 +36,7 @@ object StorageServerClient {
         sslContext.init(null, trustAllCerts, java.security.SecureRandom())
     }
 
+    //从服务器获取的所有fid
     private var tmpAllFids: MutableList<String> = mutableListOf()
 
     fun run() {
@@ -62,15 +63,15 @@ object StorageServerClient {
                 }
                 if (result.code == 200) {
                     //临时存储到一个文件中
-                    val target = requestTempFile("fs.db")
+                    val target = requestTempFile("_fs.db")
                     result.body!!.byteStream().autoTransferTo(target.outputStream())
                     val remoteDB = RemoteDBReader(target)
                     logger.debug("远程db文件下载完成")
                     try {
                         //读取文件信息,便于下面的排除法获取需要上传的文件
+                        tmpAllFids.clear()
                         remoteDB.readAllFids().apply {
                             // 有点晦涩难懂,这是复制字符串
-                            tmpAllFids.clear()
                             for (str in this) {
                                 tmpAllFids.add(str)
                             }
@@ -95,9 +96,9 @@ object StorageServerClient {
         }
         //等待远程信息读取完成
         val remoteFids = asyncRemoteFids.await()
-        //仅供Debug
-        println("LOCAL: " + localFids.joinToString(", "))
-        println("REMOTE:" + remoteFids.joinToString(", "))
+//        //仅供Debug
+//        println("LOCAL: " + localFids.joinToString(", "))
+//        println("REMOTE:" + remoteFids.joinToString(", "))
         //排除法
         localFids.removeAll(remoteFids)
         //剩下的都是需要上传的文件
@@ -108,11 +109,12 @@ object StorageServerClient {
                 //分解文件信息
                 val (usbId, fileId) = fid.split(" @ ")
                 if (DBFileManager.getFile(usbId, fileId).exists().not()) return@retryable
+                //上传出错会中断，下面不会被执行
                 retractableWebRequest {
                     uploadFile(usbId, fileId)
                 }
                 //删除已经上传的文件
-                DBFileManager.deleteFile(usbId, fileId)
+                DBFileManager.deleteUsbFile(usbId, fileId)
                 val f1 = FsDB.getFile(usbId, fileId)
                 if (f1 != null) {
                     logger.info("因为文件已经上传完毕,所以删除: $usbId : $fileId [${f1.name}, ${fileSize(f1.size)}]")
@@ -121,11 +123,11 @@ object StorageServerClient {
                 }
             }
         }
+        //清空缓存
         tmpAllFids.clear()
         logger.debug("StorageServerClient-main finish!")
     }.await()
 
-    //TODO 不知道为什么会出错
     private suspend fun <R: Any?> retractableWebRequest(limit: Int = 25, block: suspend  () -> R): R {
         var retry = 0
         var currentError: Throwable? = null
@@ -137,14 +139,14 @@ object StorageServerClient {
                 currentError = e
                 retry ++
                 logger.warn("只是连接中断,重试: $retry")
+            } catch (e: Exception) {
+                currentError = e
+                retry ++
+                logger.warn("发生错误!!!,重试: $retry", e)
             }
         }
-        if (retry > limit) {
-            logger.error("多次尝试依然失败!")
-            throw currentError!!
-        } else {
-            throw IllegalStateException("未知错误")
-        }
+        logger.error("多次尝试依然失败!")
+        throw currentError!!
     }
 
 
@@ -162,7 +164,7 @@ object StorageServerClient {
         if (tempFile.exists()) tempFile.delete()
         tempFile.createNewFile()
         //这里是关键,文件的缓存会从需要的文件数据位置开始构建
-        file.transferFilePartTo(tempFile, size)
+        file.transferFileSkipPartTo(tempFile, size)
         //开始上传文件数据
         preUploadFileData(fileId, tempFile)
     }

@@ -8,15 +8,11 @@ import java.lang.IllegalStateException
 import java.nio.file.Files
 
 fun File.cloneFile(): File {
-    return requestTempFile(name)
+    return requestTempFile("_$name")
         .apply { autoTransferTo(this) }
 }
-fun requestTempFile(name: String = ""): File {
-    return File(WorkDir.serviceConfig.tempDir, getOnlyId() +
-            if (name.isNotEmpty()) {
-                "_$name"
-            } else ""
-    )
+fun requestTempFile(endStuff: String = "_"): File {
+    return File(WorkDir.serviceConfig.tempDir, getOnlyId() + endStuff)
 }
 fun File.link(name: String): File = File(this, name)
 fun File.linkDir(name: String): File = link(name).apply { if (exists() && isDirectory.not()) throw IllegalStateException("$this 不是文件夹") }
