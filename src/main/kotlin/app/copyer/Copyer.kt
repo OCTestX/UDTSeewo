@@ -2,9 +2,9 @@ package app.copyer
 
 import WorkDir
 import app.actionpack.ActionExecutor
+import app.actionpack.EventListener
 import kotlinx.coroutines.runBlocking
 import logger
-import model.EventListener
 import model.Usb
 import model.UsbConfig
 import repository.db.FsDB
