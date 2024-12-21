@@ -21,7 +21,9 @@ class Configure(private val usbRootFile: File) {
 
     //need Copy?
     suspend fun main(): Boolean {
+        logger.debug("Configure-USB: check basicConfigDir exists status")
         if (!basicConfigDir.exists()) {
+            logger.debug("Configure-USB: <${usbRootFile}><${usb.usbId}> basicConfigDir is not exists, skip configure")
             return true
         }
 

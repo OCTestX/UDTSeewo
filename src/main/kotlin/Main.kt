@@ -19,6 +19,7 @@ fun main() {
             try {
                 val needCopy = Configure(it).main()
                 if (needCopy) {
+                    logger.info("[Info] USBListenerBlock: USB device connected and isn't usbConfigureUDisk, start copying...")
                     Copyer(it).main()
                 }
             } catch (e: Throwable) {
